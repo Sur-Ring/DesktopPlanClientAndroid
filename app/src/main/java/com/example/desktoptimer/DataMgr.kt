@@ -24,8 +24,16 @@ import java.util.concurrent.TimeUnit
 import javax.net.ssl.HostnameVerifier
 
 
-class DataManager(private val context: Context) {
+class DataManager private constructor(private val context: Context) {
     companion object {
+        @Volatile
+        private var INSTANCE: DataManager? = null
+        fun getInstance(context: Context): DataManager {
+            return INSTANCE ?: synchronized(this) {
+                INSTANCE ?: DataManager(context.applicationContext).also { INSTANCE = it }
+            }
+        }
+
         private const val TAG = "DataManager"
         private const val HELLO_PORT = 5051
         private const val DISCOVERY_MESSAGE = "DISCOVER_FLASK_SERVICE"
@@ -34,9 +42,9 @@ class DataManager(private val context: Context) {
     }
 
     private val dataFile = "todo_data.json"
-    private var last_tab_list : MutableList<Todo_Tab> = mutableStateListOf<Todo_Tab>()
-    private var last_sync_time : String = ""
-    private var last_edit_time : String = ""
+    public var last_tab_list : MutableList<Todo_Tab> = mutableStateListOf<Todo_Tab>()
+    public var last_sync_time : String = ""
+    public var last_edit_time : String = ""
 
     private var udp_socket: DatagramSocket = DatagramSocket()
     public var server_ip: String? = null
@@ -49,17 +57,17 @@ class DataManager(private val context: Context) {
             .build()
     }
 
+    private var sync_mgr = SyncMgr(this)
+
     init {
+        Log.d(TAG, "DataManager: 初始化")
         loadData()
 
         // 创建UDP socket
         udp_socket.setBroadcast(true)
         udp_socket.setSoTimeout(TIMEOUT_MS)
 
-//        if (last_sync_time != last_edit_time) {
-//            Log.d(TAG, "初始化触发同步数据")
-//            syncData()
-//        }
+        sync_mgr.start_listening()
     }
 
     fun update_widget(){
@@ -79,7 +87,9 @@ class DataManager(private val context: Context) {
     }
 
     fun loadData() {
+        Log.d(TAG, "开始读取数据")
         val file= File(context.getFilesDir(), dataFile)
+        if(!file.canRead()) return
         val app_data = JSONObject(file.readText())
         if(app_data.has("sync_time")){
             last_sync_time = app_data.getString("sync_time")
@@ -107,129 +117,5 @@ class DataManager(private val context: Context) {
         app_data.put("tab_list", tab_list_json)
         f.writeText(app_data.toString())
         update_widget()
-
-        if (last_sync_time != last_edit_time) {
-            Log.d(TAG, "保存触发同步数据")
-            syncData();
-        }
-    }
-
-    fun syncData(){
-        Log.d(TAG, "开始同步数据")
-        if (last_sync_time == last_edit_time) return
-
-        if (server_ip == null) {
-            Log.d(TAG, "syncData: server_ip:${server_ip}")
-            discover_server()
-            // 应该做个回调
-            return;
-        }
-
-        // 打包数据
-        val app_data = JSONObject()
-        app_data.put("sync_time", last_sync_time)
-        var tab_list_json = JSONArray()
-        last_tab_list.forEach { tab_list_json.put(it.to_json()) }
-        app_data.put("tab_list", tab_list_json)
-
-        // 发送POST请求
-        val url = "http://$server_ip:$server_port/api/data/push"
-        val requestBody = app_data.toString().toRequestBody(JSON_MEDIA_TYPE)
-        val request = Request.Builder()
-            .url(url)
-            .post(requestBody)
-            .addHeader("Content-Type", "application/json")
-            .build()
-
-        http_client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                Log.d(TAG, "网络错误: ${e.message}")
-                server_ip = null
-            }
-            override fun onResponse(call: Call, response: Response) {
-                response.use {
-                    if (response.isSuccessful) {
-                        val responseBody = response.body?.string() ?: ""
-                        Log.d(TAG, "收到回复:${responseBody}")
-                        val jsonObject = JSONObject(responseBody)
-                        val result = jsonObject.getInt("result")
-                        val syncTime = jsonObject.optString("sync_time", "")
-
-                        if (result == -1){
-                            // 如果同步失败, 那么直接将服务器的数据作为自己的数据
-                            last_sync_time = syncTime
-                            last_edit_time = last_sync_time
-                            last_tab_list.clear()
-                            var tab_list_json = jsonObject.getJSONArray("tab_list")
-                            for (i in 0 until tab_list_json.length()) {
-                                last_tab_list.add(Todo_Tab(tab_list_json.get(i) as JSONObject?))
-                            }
-                            saveData()
-                        }else if (result == 0){
-                            // 同步成功, 更新同步时间
-                            last_sync_time = syncTime
-                            last_edit_time = last_sync_time
-                            saveData();
-                        }
-                    } else {
-                        Log.d(TAG, "服务器错误: ${response.code}")
-                    }
-                }
-            }
-        })
-    }
-
-    fun discover_server() {
-        if(server_ip != null) return
-        DiscoveryThread().start()
-    }
-
-    private inner class DiscoveryThread : Thread() {
-        override fun run() {
-            // 发送广播消息
-            val broadcastAddress = InetAddress.getByName("255.255.255.255")
-            val sendData = DISCOVERY_MESSAGE.toByteArray()
-            val sendPacket = DatagramPacket(
-                sendData, sendData.size, broadcastAddress, HELLO_PORT
-            )
-
-            udp_socket.send(sendPacket)
-            Log.d(TAG, "广播发现消息已发送")
-
-            // 监听响应
-            val receiveBuffer = ByteArray(1024)
-            val receivePacket = DatagramPacket(receiveBuffer, receiveBuffer.size)
-
-            try {
-                udp_socket.receive(receivePacket)
-            } catch (e: SocketTimeoutException) {
-                Log.d(TAG, "超时未收到响应")
-                return
-            }
-
-            val response = String(receivePacket.getData(), 0, receivePacket.getLength())
-            val senderIp = receivePacket.getAddress().getHostAddress()
-            Log.d(TAG, "收到响应: " + response + " 来自: " + senderIp)
-
-            if (response.startsWith("FLASK_SERVICE:")) {
-                val parts: Array<String?> =
-                    response.split(":".toRegex()).dropLastWhile { it.isEmpty() }
-                        .toTypedArray()
-
-                if (parts.size < 3) {
-                    Log.d(TAG, "回复格式错误")
-                }
-
-                val servicePort = parts[2]!!.toInt()
-                if (senderIp == null) {
-                    Log.d(TAG, "senderIp为空")
-                }
-                server_ip = senderIp
-                server_port = servicePort
-                Log.d("TAG", "发现服务器: $senderIp:$servicePort")
-                Log.d(TAG, "发现触发同步数据")
-                syncData()
-            }
-        }
     }
 }

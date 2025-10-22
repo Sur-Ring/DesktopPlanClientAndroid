@@ -89,7 +89,7 @@ internal fun updateAppWidget(
     val contentContainer = R.id.content_container
     views.removeAllViews(contentContainer)
 
-    val dataManager = DataManager(context)
+    val dataManager = DataManager.getInstance(context)
     val tab_list = dataManager.get_tab_list()
     Log.d("updateAppWidget", "更新小组件: ${tab_list.size}")
 

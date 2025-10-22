@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.ui.unit.dp
 
 import androidx.activity.compose.setContent
+import androidx.activity.viewModels
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
@@ -89,24 +90,11 @@ import kotlin.collections.plus
 import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
-    private var dataManager: DataManager? = null
-    private var tab_list : MutableList<Todo_Tab> = mutableStateListOf()
+    private val viewModel: MainViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-
-        // 加载存储的数据
-        if (dataManager == null){
-            dataManager = DataManager(this)
-        }
-//        dataManager = DataManager(this)
-//        tab_list = dataManager.get_tab_list()
-        tab_list.addAll(dataManager!!.get_tab_list())
-
-        fun update_data(){
-            dataManager!!.update_tab_list(tab_list)
-        }
 
         // 创建UI
         setContent {
@@ -115,8 +103,8 @@ class MainActivity : ComponentActivity() {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     Column(modifier = Modifier.padding(innerPadding)) {
                         TODO_Page(
-                            tab_list,
-                            ::update_data,
+                            viewModel.tabList,
+                            { viewModel.updateData() }
                         )
 
                         OutlinedButton(onClick = {

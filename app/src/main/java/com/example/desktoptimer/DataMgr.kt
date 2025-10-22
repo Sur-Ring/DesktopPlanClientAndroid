@@ -21,6 +21,7 @@ import java.net.SocketTimeoutException
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
+import javax.net.ssl.HostnameVerifier
 
 
 class DataManager(private val context: Context) {
@@ -44,6 +45,7 @@ class DataManager(private val context: Context) {
         OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
+            .hostnameVerifier(HostnameVerifier { hostname, session -> true })
             .build()
     }
 
@@ -54,9 +56,10 @@ class DataManager(private val context: Context) {
         udp_socket.setBroadcast(true)
         udp_socket.setSoTimeout(TIMEOUT_MS)
 
-        if (last_sync_time != last_edit_time) {
-            syncData();
-        }
+//        if (last_sync_time != last_edit_time) {
+//            Log.d(TAG, "初始化触发同步数据")
+//            syncData()
+//        }
     }
 
     fun update_widget(){
@@ -106,13 +109,17 @@ class DataManager(private val context: Context) {
         update_widget()
 
         if (last_sync_time != last_edit_time) {
+            Log.d(TAG, "保存触发同步数据")
             syncData();
         }
     }
 
     fun syncData(){
         Log.d(TAG, "开始同步数据")
+        if (last_sync_time == last_edit_time) return
+
         if (server_ip == null) {
+            Log.d(TAG, "syncData: server_ip:${server_ip}")
             discover_server()
             // 应该做个回调
             return;
@@ -126,7 +133,7 @@ class DataManager(private val context: Context) {
         app_data.put("tab_list", tab_list_json)
 
         // 发送POST请求
-        val url = "https://$server_ip:$server_port/api/data/push"
+        val url = "http://$server_ip:$server_port/api/data/push"
         val requestBody = app_data.toString().toRequestBody(JSON_MEDIA_TYPE)
         val request = Request.Builder()
             .url(url)
@@ -173,6 +180,7 @@ class DataManager(private val context: Context) {
     }
 
     fun discover_server() {
+        if(server_ip != null) return
         DiscoveryThread().start()
     }
 
@@ -219,6 +227,8 @@ class DataManager(private val context: Context) {
                 server_ip = senderIp
                 server_port = servicePort
                 Log.d("TAG", "发现服务器: $senderIp:$servicePort")
+                Log.d(TAG, "发现触发同步数据")
+                syncData()
             }
         }
     }

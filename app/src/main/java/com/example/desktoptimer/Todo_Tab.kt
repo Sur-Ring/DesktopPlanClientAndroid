@@ -52,7 +52,7 @@ class Todo_Tab(json_data:JSONObject?) {
     init {
         if(json_data != null) {
             name = json_data.get("name") as String
-            fold = json_data.get("fold") as Boolean
+            fold = json_data.optBoolean("fold", true) as Boolean
 
             entry_list = mutableStateListOf()
             var entry_list_json = json_data.getJSONArray("todo_entry_list")

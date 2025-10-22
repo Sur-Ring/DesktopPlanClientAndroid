@@ -89,7 +89,7 @@ import kotlin.collections.plus
 import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
-    private lateinit var dataManager: DataManager
+    private var dataManager: DataManager? = null
     private var tab_list : MutableList<Todo_Tab> = mutableStateListOf()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -97,12 +97,15 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         // 加载存储的数据
-        dataManager = DataManager(this)
+        if (dataManager == null){
+            dataManager = DataManager(this)
+        }
+//        dataManager = DataManager(this)
 //        tab_list = dataManager.get_tab_list()
-        tab_list.addAll(dataManager.get_tab_list())
+        tab_list.addAll(dataManager!!.get_tab_list())
 
         fun update_data(){
-            dataManager.update_tab_list(tab_list)
+            dataManager!!.update_tab_list(tab_list)
         }
 
         // 创建UI
